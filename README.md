@@ -8,6 +8,7 @@
 
 Built on the Official SDK · Testnet + Mainnet · Market & Limit Orders · Position Management
 
+[![Test](https://github.com/counterfactual5/hyperliquid-autopilot/actions/workflows/test.yml/badge.svg)](https://github.com/counterfactual5/hyperliquid-autopilot/actions)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
