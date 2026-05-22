@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyperliquid-autopilot"
+version = "0.1.0"
+description = "Hyperliquid perpetual futures trading toolkit — quotes, orders, and trade flows"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "counterfactual5" },
+]
+dependencies = [
+    "hyperliquid-python-sdk>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
