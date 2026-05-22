@@ -148,4 +148,7 @@ def decimal_to_text(value: Decimal) -> str:
 
 
 def parse_decimal(value: Any, label: str = "") -> Decimal:
-    return Decimal(str(value))
+    try:
+        return Decimal(str(value))
+    except Exception:
+        raise ValueError(f"invalid decimal value{f' for {label}' if label else ''}: {value!r}")
