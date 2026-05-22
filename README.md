@@ -77,9 +77,8 @@ print(f"  ETH mid price: ${mid:,.2f}")
 
 # Quote for buying $100 of ETH
 quote = prepare_quote(coin="ETH", size_usd=100, is_buy=True)
-print(f"  Entry price: ${quote['price']}")
-print(f"  Slippage: {quote['slippage_pct']:.2f}%")
-print(f"  Impact: {quote['price_impact']:.4f}%")
+print(f"  Entry price: ${quote['estimated_fill_price']}")
+print(f"  Slippage: {quote['slippage_bps']} bps")
 
 # L2 orderbook depth
 book = get_l2_snapshot("ETH")
@@ -90,8 +89,7 @@ for level in book["bids"][:3]:
 ```
   ETH mid price: $3,245.50
   Entry price: $3,246.80
-  Slippage: 0.04%
-  Impact: 0.0128%
+  Slippage: 4.0 bps
   Bid: $3,245.00  Size: 12.5
   Bid: $3,244.50  Size: 8.3
   Bid: $3,244.00  Size: 15.1
@@ -236,6 +234,20 @@ Data Flow:
 ## Supported Markets
 
 All Hyperliquid perpetual futures — ETH, BTC, SOL, and 100+ other pairs. Use `get_meta()` to list all available assets.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest -v           # 12 tests
+```
+
+## Roadmap
+
+- [ ] Stop-loss / take-profit automation
+- [ ] Async support (async/await)
+- [ ] WebSocket real-time price feeds
+- [ ] Strategy backtesting framework
 
 ## Security
 
