@@ -164,3 +164,98 @@ class TestCommon(unittest.TestCase):
     def test_parse_decimal_invalid(self):
         with self.assertRaises(ValueError):
             parse_decimal("not_a_number", label="test_value")
+
+
+class TestCommonRequireKey(unittest.TestCase):
+
+    def setUp(self):
+        os.environ.pop("HYPERLIQUID_PRIVATE_KEY", None)
+
+    def test_require_private_key_from_env(self):
+        from hyperliquid_autopilot.common import require_private_key
+        os.environ["HYPERLIQUID_PRIVATE_KEY"] = "0xdeadbeef"
+        try:
+            self.assertEqual(require_private_key(), "0xdeadbeef")
+        finally:
+            os.environ.pop("HYPERLIQUID_PRIVATE_KEY", None)
+
+    def test_require_private_key_auto_prefix(self):
+        from hyperliquid_autopilot.common import require_private_key
+        os.environ["HYPERLIQUID_PRIVATE_KEY"] = "abc123"
+        try:
+            self.assertEqual(require_private_key(), "0xabc123")
+        finally:
+            os.environ.pop("HYPERLIQUID_PRIVATE_KEY", None)
+
+    def test_require_private_key_missing(self):
+        from hyperliquid_autopilot.common import require_private_key
+        with self.assertRaises(RuntimeError):
+            require_private_key()
+
+
+class TestCommonWallet(unittest.TestCase):
+
+    def setUp(self):
+        for k in ("HYPERLIQUID_WALLET_ADDRESS", "HYPERLIQUID_WALLET_ADDRESS_MAINNET",
+                  "HYPERLIQUID_WALLET_ADDRESS_TESTNET", "HYPERLIQUID_TESTNET"):
+            os.environ.pop(k, None)
+
+    def test_wallet_address_mainnet_specific(self):
+        from hyperliquid_autopilot.common import require_wallet_address
+        os.environ["HYPERLIQUID_WALLET_ADDRESS_MAINNET"] = "0xAAA"
+        try:
+            self.assertEqual(require_wallet_address(), "0xAAA")
+        finally:
+            os.environ.pop("HYPERLIQUID_WALLET_ADDRESS_MAINNET", None)
+
+    def test_wallet_address_fallback(self):
+        from hyperliquid_autopilot.common import require_wallet_address
+        os.environ["HYPERLIQUID_WALLET_ADDRESS"] = "0xBBB"
+        try:
+            self.assertEqual(require_wallet_address(), "0xBBB")
+        finally:
+            os.environ.pop("HYPERLIQUID_WALLET_ADDRESS", None)
+
+    def test_wallet_address_missing(self):
+        from hyperliquid_autopilot.common import require_wallet_address
+        with self.assertRaises(RuntimeError):
+            require_wallet_address()
+
+
+class TestCommonNetwork(unittest.TestCase):
+
+    def setUp(self):
+        os.environ.pop("HYPERLIQUID_TESTNET", None)
+
+    def test_mainnet_by_default(self):
+        from hyperliquid_autopilot.common import get_base_url, MAINNET_URL, is_testnet
+        self.assertEqual(get_base_url(), MAINNET_URL)
+        self.assertFalse(is_testnet())
+
+    def test_testnet_env(self):
+        from hyperliquid_autopilot.common import get_base_url, TESTNET_URL, is_testnet
+        os.environ["HYPERLIQUID_TESTNET"] = "1"
+        try:
+            self.assertEqual(get_base_url(), TESTNET_URL)
+            self.assertTrue(is_testnet())
+        finally:
+            os.environ.pop("HYPERLIQUID_TESTNET", None)
+
+    def test_testnet_env_yes(self):
+        from hyperliquid_autopilot.common import is_testnet
+        os.environ["HYPERLIQUID_TESTNET"] = "yes"
+        try:
+            self.assertTrue(is_testnet())
+        finally:
+            os.environ.pop("HYPERLIQUID_TESTNET", None)
+
+
+class TestDecimalToText(unittest.TestCase):
+
+    def test_integer(self):
+        from hyperliquid_autopilot.common import decimal_to_text
+        self.assertEqual(decimal_to_text(Decimal("42")), "42")
+
+    def test_float(self):
+        from hyperliquid_autopilot.common import decimal_to_text
+        self.assertEqual(decimal_to_text(Decimal("3.14159")), "3.14159")
