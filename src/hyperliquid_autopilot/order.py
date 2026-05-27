@@ -1,7 +1,6 @@
 """Hyperliquid order execution — place, cancel, position management."""
 from __future__ import annotations
 
-import json
 from decimal import Decimal
 from typing import Any
 
@@ -10,7 +9,6 @@ from hyperliquid_autopilot.common import (
     make_info_client,
     require_wallet_address,
     get_base_url,
-    is_testnet,
     decimal_to_text,
     parse_decimal,
 )

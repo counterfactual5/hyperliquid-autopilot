@@ -1,7 +1,6 @@
 """Hyperliquid trade flow — end-to-end quote → execute orchestration."""
 from __future__ import annotations
 
-import os
 from decimal import Decimal
 from typing import Any
 
@@ -9,18 +8,11 @@ from hyperliquid_autopilot.common import (
     decimal_to_text,
     get_base_url,
     is_testnet,
-    make_exchange_client,
-    make_info_client,
     parse_decimal,
-    require_private_key,
     require_wallet_address,
 )
 from hyperliquid_autopilot.quote import get_mid_price, prepare_quote, summarize_quote
 from hyperliquid_autopilot.order import (
-    close_position,
-    get_account_value,
-    get_open_orders,
-    get_positions,
     place_limit_order,
     place_market_order,
     set_leverage,
