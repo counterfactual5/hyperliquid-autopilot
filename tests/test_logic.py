@@ -139,8 +139,8 @@ class TestFlow(unittest.TestCase):
         info = _mock_info_client()
         exchange = _mock_exchange_client()
 
-        with mock.patch("hyperliquid_autopilot.flow.make_info_client", return_value=info):
-            with mock.patch("hyperliquid_autopilot.flow.make_exchange_client", return_value=exchange):
+        with mock.patch("hyperliquid_autopilot.quote.get_mid_price", return_value=Decimal("2500")):
+            with mock.patch("hyperliquid_autopilot.quote.prepare_quote", return_value={"coin": "ETH", "mid": Decimal("2500"), "bid": Decimal("2499"), "ask": Decimal("2501")}):
                 result = run_trade_flow(coin="ETH", side="buy", size_usd=100, dry_run=True)
 
         self.assertEqual(result["status"], "dry_run")
