@@ -52,11 +52,12 @@ def prepare_quote(
     coin: str = "ETH",
     is_buy: bool = True,
     size_usd: float | Decimal | str = 100,
-    slippage: float = 0.005,
+    slippage: float = 0.005,  # noqa: ARG001 — reserved for future slippage guard
+    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Estimate a trade quote based on current orderbook."""
     size = parse_decimal(str(size_usd), "size_usd")
-    info = make_info_client()
+    info = make_info_client(base_url=base_url)
 
     all_mids = info.all_mids()
     mid_str = all_mids.get(coin)
