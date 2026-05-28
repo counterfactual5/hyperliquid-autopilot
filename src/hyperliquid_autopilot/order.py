@@ -5,6 +5,13 @@ import time
 from decimal import Decimal
 from typing import Any
 
+from hyperliquid_autopilot.audit import (
+    EVENT_BROADCAST,
+    EVENT_CANCEL,
+    EVENT_ERROR,
+    EVENT_SIGN,
+    log_event,
+)
 from hyperliquid_autopilot.common import (
     make_exchange_client,
     make_info_client,
@@ -46,7 +53,31 @@ def _retry_call(operation: str, coin: str, fn, *, retries: int = 3, backoff_seco
             if attempt >= retries:
                 break
             time.sleep(backoff_seconds * attempt)
+    log_event(
+        event=EVENT_ERROR,
+        chain="hyperliquid",
+        wallet=_try_wallet(),
+        error_code=type(last_error).__name__ if last_error else "retry_exhausted",
+        details={
+            "operation": operation,
+            "coin": coin,
+            "retries": retries,
+            "message": str(last_error) if last_error else "unknown",
+        },
+    )
     raise OrderExecutionError(operation, coin, str(last_error))
+
+
+def _try_wallet() -> str | None:
+    """Look up the wallet address without raising — audit must never break trade.
+
+    The wallet helper raises when env vars are missing; audit logging should
+    degrade gracefully in that case rather than masking the original error.
+    """
+    try:
+        return require_wallet_address()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +156,21 @@ def place_market_order(
     else:
         limit_price = mid * (1 - slippage_dec)
 
+    wallet = _try_wallet()
+    log_event(
+        event=EVENT_SIGN,
+        chain="hyperliquid",
+        wallet=wallet,
+        details={
+            "operation": "place_market_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "size": decimal_to_text(size_dec),
+            "limitPrice": decimal_to_text(limit_price),
+            "slippage": decimal_to_text(slippage_dec),
+            "cloid": cloid,
+        },
+    )
     result = _retry_call(
         "place_market_order",
         coin,
@@ -136,6 +182,16 @@ def place_market_order(
             order_type={"limit": {"tif": "IOC"}},
             cloid=cloid,
         ),
+    )
+    log_event(
+        event=EVENT_BROADCAST,
+        chain="hyperliquid",
+        wallet=wallet,
+        details={
+            "operation": "place_market_order",
+            "coin": coin,
+            "status": _parse_status(result),
+        },
     )
 
     return _normalize_order_result(result, coin, is_buy, size_dec, limit_price, "market_ioc")
@@ -156,6 +212,21 @@ def place_limit_order(
     price_dec = parse_decimal(str(price), "price")
     exchange = make_exchange_client(base_url)
 
+    wallet = _try_wallet()
+    log_event(
+        event=EVENT_SIGN,
+        chain="hyperliquid",
+        wallet=wallet,
+        details={
+            "operation": "place_limit_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "size": decimal_to_text(size_dec),
+            "price": decimal_to_text(price_dec),
+            "tif": time_in_force,
+            "cloid": cloid,
+        },
+    )
     result = _retry_call(
         "place_limit_order",
         coin,
@@ -167,6 +238,16 @@ def place_limit_order(
             order_type={"limit": {"tif": time_in_force}},
             cloid=cloid,
         ),
+    )
+    log_event(
+        event=EVENT_BROADCAST,
+        chain="hyperliquid",
+        wallet=wallet,
+        details={
+            "operation": "place_limit_order",
+            "coin": coin,
+            "status": _parse_status(result),
+        },
     )
 
     return _normalize_order_result(result, coin, is_buy, size_dec, price_dec, f"limit_{time_in_force}")
@@ -181,6 +262,17 @@ def cancel_order(
     """Cancel a single order."""
     exchange = make_exchange_client(base_url)
     result = _retry_call("cancel_order", coin, lambda: exchange.cancel(coin=coin, oid=order_id))
+    log_event(
+        event=EVENT_CANCEL,
+        chain="hyperliquid",
+        wallet=_try_wallet(),
+        details={
+            "operation": "cancel_order",
+            "coin": coin,
+            "orderId": order_id,
+            "status": _parse_status(result),
+        },
+    )
     return {
         "action": "cancel_order",
         "coin": coin,
