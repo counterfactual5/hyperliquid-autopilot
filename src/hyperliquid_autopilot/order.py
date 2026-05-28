@@ -8,6 +8,7 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
+from hyperliquid_autopilot import policy as _policy
 from hyperliquid_autopilot import state_machine
 from hyperliquid_autopilot.audit import (
     EVENT_BROADCAST,
@@ -185,6 +186,30 @@ def place_market_order(
             payload={"coin": coin, "side": "buy" if is_buy else "sell"},
         )
 
+    # --- policy gate (PREFLIGHT → SIGNED) ---
+    pol = _policy.load_policy()
+    policy_ctx = {
+        "amount": str(size),
+        "chain": "hyperliquid",
+        "sender": _try_wallet(),
+        "coin": coin,
+        "slippage_bps": int(slippage * 10000) if slippage else None,
+    }
+    policy_result = _policy.check_hyperliquid(pol, policy_ctx)
+    if not policy_result.allowed:
+        state_machine.transition(run_id, state_machine.STATE_FAILED,
+                                 payload={"policy_violations": policy_result.to_dict()["violations"]})
+        log_event(
+            event=EVENT_ERROR,
+            chain="hyperliquid",
+            wallet=_try_wallet(),
+            error_code="policy_rejected",
+            details={"violations": policy_result.to_dict()["violations"]},
+        )
+        raise RuntimeError(
+            f"Policy rejected: {'; '.join(v.message for v in policy_result.violations)}"
+        )
+
     action = state_machine.next_action(run_id)
     if action is None:
         raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
@@ -295,6 +320,30 @@ def place_limit_order(
             state_machine.STATE_PREFLIGHT,
             payload={"coin": coin, "side": "buy" if is_buy else "sell", "tif": time_in_force},
         )
+
+    # --- policy gate (PREFLIGHT → SIGNED) ---
+    pol = _policy.load_policy()
+    policy_ctx = {
+        "amount": str(size_dec),
+        "chain": "hyperliquid",
+        "sender": _try_wallet(),
+        "coin": coin,
+    }
+    policy_result = _policy.check_hyperliquid(pol, policy_ctx)
+    if not policy_result.allowed:
+        state_machine.transition(run_id, state_machine.STATE_FAILED,
+                                 payload={"policy_violations": policy_result.to_dict()["violations"]})
+        log_event(
+            event=EVENT_ERROR,
+            chain="hyperliquid",
+            wallet=_try_wallet(),
+            error_code="policy_rejected",
+            details={"violations": policy_result.to_dict()["violations"]},
+        )
+        raise RuntimeError(
+            f"Policy rejected: {'; '.join(v.message for v in policy_result.violations)}"
+        )
+
     action = state_machine.next_action(run_id)
     if action is None:
         raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
