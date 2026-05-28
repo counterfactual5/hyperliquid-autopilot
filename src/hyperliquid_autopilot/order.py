@@ -185,6 +185,28 @@ def place_market_order(
             payload={"coin": coin, "side": "buy" if is_buy else "sell"},
         )
 
+    action = state_machine.next_action(run_id)
+    if action is None:
+        raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
+    if action == state_machine.STATE_BROADCAST:
+        return {
+            "action": "place_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "status": "already_broadcast",
+            "venue": "hyperliquid",
+        }
+    if action == state_machine.STATE_CONFIRMED:
+        return {
+            "action": "place_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "status": "already_confirmed",
+            "venue": "hyperliquid",
+        }
+    if action != state_machine.STATE_SIGNED:
+        raise RuntimeError(f"unexpected next_action={action!r} before signing")
+
     exchange = make_exchange_client(base_url)
 
     info = make_info_client(base_url or get_base_url())
@@ -212,9 +234,7 @@ def place_market_order(
         },
     )
     # --- state machine: signed ---
-    action = state_machine.next_action(run_id)
-    if action == state_machine.STATE_SIGNED:
-        state_machine.transition(run_id, state_machine.STATE_SIGNED)
+    state_machine.transition(run_id, state_machine.STATE_SIGNED)
     result = _retry_call(
         "place_market_order",
         coin,
@@ -238,9 +258,7 @@ def place_market_order(
         },
     )
     # --- state machine: broadcast ---
-    action = state_machine.next_action(run_id)
-    if action == state_machine.STATE_BROADCAST:
-        state_machine.transition(run_id, state_machine.STATE_BROADCAST)
+    state_machine.transition(run_id, state_machine.STATE_BROADCAST)
 
     return _normalize_order_result(
         result, coin, is_buy, size_dec, limit_price, "market_ioc"
@@ -260,6 +278,45 @@ def place_limit_order(
     """Place a limit order (Gtc, Ioc, or Alo)."""
     size_dec = parse_decimal(str(size), "size")
     price_dec = parse_decimal(str(price), "price")
+
+    global _last_run_id
+    _last_run_id = (
+        os.environ.get("AUDIT_RUN_ID")
+        or os.environ.get("STAGEFORGE_RUN_ID")
+        or f"hl-{uuid.uuid4().hex[:12]}"
+    )
+    run_id = _last_run_id
+    action = state_machine.next_action(run_id)
+    if action is None:
+        raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
+    if action == state_machine.STATE_PREFLIGHT:
+        state_machine.transition(
+            run_id,
+            state_machine.STATE_PREFLIGHT,
+            payload={"coin": coin, "side": "buy" if is_buy else "sell", "tif": time_in_force},
+        )
+    action = state_machine.next_action(run_id)
+    if action is None:
+        raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
+    if action == state_machine.STATE_BROADCAST:
+        return {
+            "action": "place_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "status": "already_broadcast",
+            "venue": "hyperliquid",
+        }
+    if action == state_machine.STATE_CONFIRMED:
+        return {
+            "action": "place_order",
+            "coin": coin,
+            "side": "buy" if is_buy else "sell",
+            "status": "already_confirmed",
+            "venue": "hyperliquid",
+        }
+    if action != state_machine.STATE_SIGNED:
+        raise RuntimeError(f"unexpected next_action={action!r} before signing")
+
     exchange = make_exchange_client(base_url)
 
     wallet = _try_wallet()
@@ -277,6 +334,7 @@ def place_limit_order(
             "cloid": cloid,
         },
     )
+    state_machine.transition(run_id, state_machine.STATE_SIGNED)
     result = _retry_call(
         "place_limit_order",
         coin,
@@ -299,6 +357,7 @@ def place_limit_order(
             "status": _parse_status(result),
         },
     )
+    state_machine.transition(run_id, state_machine.STATE_BROADCAST)
 
     return _normalize_order_result(
         result, coin, is_buy, size_dec, price_dec, f"limit_{time_in_force}"
