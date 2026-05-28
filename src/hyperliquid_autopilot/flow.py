@@ -84,6 +84,7 @@ def run_trade_flow(
         is_buy=is_buy,
         size_usd=size,
         slippage=slippage,
+        base_url=url,
     )
     quote_summary = summarize_quote(quote)
 
