@@ -18,6 +18,12 @@ Built on the Official SDK · Testnet + Mainnet · Market & Limit Orders · Posit
 
 ---
 
+> [!IMPORTANT]
+> **Trading safety.** Order paths run through a shared risk-control policy
+> (amount caps, leverage limit, coin allow-list, slippage limits) evaluated
+> between the `PREFLIGHT` and `SIGNED` states. Read **[RISK_POLICY.md](RISK_POLICY.md)**
+> and copy `policy.yaml` to `~/.stageforge/policy.yaml` before going live.
+
 ## What Is This?
 
 [Hyperliquid](https://hyperliquid.xyz) is a high-performance perpetual futures DEX. Their official Python SDK handles the low-level protocol — but it's bare-bones. No quotes, no slippage estimation, no end-to-end trade flows.
