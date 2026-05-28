@@ -260,3 +260,7 @@ pytest -v           # 12 tests
 ## License
 
 [MIT](LICENSE) — use it however you want.
+
+---
+
+If this project helped you, please ⭐ star this repo — it helps others find it!
