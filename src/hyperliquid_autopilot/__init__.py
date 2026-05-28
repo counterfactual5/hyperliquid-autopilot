@@ -1,3 +1,3 @@
 """Hyperliquid Autopilot — perpetual futures trading toolkit."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"

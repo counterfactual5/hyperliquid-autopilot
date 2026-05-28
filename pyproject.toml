@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hyperliquid-autopilot"
-version = "0.1.2"
+version = "0.2.0"
 description = "Hyperliquid perpetual futures trading toolkit — quotes, orders, and trade flows"
 readme = "README.md"
 license = "MIT"
