@@ -14,6 +14,7 @@ from hyperliquid_autopilot.audit import (
     EVENT_BROADCAST,
     EVENT_CANCEL,
     EVENT_ERROR,
+    EVENT_PREFLIGHT,
     EVENT_SIGN,
     log_event,
 )
@@ -209,6 +210,13 @@ def place_market_order(
         raise RuntimeError(
             f"Policy rejected: {'; '.join(v.message for v in policy_result.violations)}"
         )
+    if policy_result.warnings:
+        log_event(
+            event=EVENT_PREFLIGHT,
+            chain="hyperliquid",
+            wallet=_try_wallet(),
+            details={"stage": "policy", "warnings": policy_result.to_dict()["warnings"]},
+        )
 
     action = state_machine.next_action(run_id)
     if action is None:
@@ -342,6 +350,13 @@ def place_limit_order(
         )
         raise RuntimeError(
             f"Policy rejected: {'; '.join(v.message for v in policy_result.violations)}"
+        )
+    if policy_result.warnings:
+        log_event(
+            event=EVENT_PREFLIGHT,
+            chain="hyperliquid",
+            wallet=_try_wallet(),
+            details={"stage": "policy", "warnings": policy_result.to_dict()["warnings"]},
         )
 
     action = state_machine.next_action(run_id)
