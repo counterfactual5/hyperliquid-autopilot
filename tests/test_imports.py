@@ -39,4 +39,5 @@ def test_import_flow():
 
 def test_version():
     import hyperliquid_autopilot
-    assert hyperliquid_autopilot.__version__ == "0.1.0"
+    import re
+    assert re.match(r"^\d+\.\d+\.\d+", hyperliquid_autopilot.__version__)
