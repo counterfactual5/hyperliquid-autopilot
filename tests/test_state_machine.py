@@ -158,5 +158,96 @@ class TestStateMachineEnvVars(unittest.TestCase):
         self.assertEqual(s["run_id"], "audit-run-99")
 
 
+class TestAntiReplayMarketOrder(unittest.TestCase):
+    """Anti-replay: same run_id must NOT call exchange.order a second time.
+
+    Simulates the scenario where a prior run already completed broadcast.
+    A second invocation of ``place_market_order`` with the same ``run_id``
+    must skip signing/broadcasting and return an ``already_broadcast`` result.
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        os.environ["STAGEFORGE_STATE_DIR"] = self._tmpdir.name
+        self.run_id = "hl-replay-guard-001"
+
+        state_machine.transition(self.run_id, state_machine.STATE_PREFLIGHT,
+                                 payload={"coin": "ETH", "side": "buy"})
+        state_machine.transition(self.run_id, state_machine.STATE_SIGNED)
+        state_machine.transition(self.run_id, state_machine.STATE_BROADCAST)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+        os.environ.pop("STAGEFORGE_STATE_DIR", None)
+        os.environ.pop("AUDIT_RUN_ID", None)
+
+    def test_exchange_order_not_called_on_replay(self) -> None:
+        from unittest import mock
+
+        os.environ["AUDIT_RUN_ID"] = self.run_id
+
+        from hyperliquid_autopilot.order import place_market_order
+
+        with (
+            mock.patch("hyperliquid_autopilot.order.make_exchange_client") as mock_exchange_factory,
+            mock.patch("hyperliquid_autopilot.order.make_info_client") as mock_info_factory,
+            mock.patch("hyperliquid_autopilot.order.log_event"),
+        ):
+            mock_exchange = mock.MagicMock()
+            mock_exchange_factory.return_value = mock_exchange
+
+            mock_info = mock.MagicMock()
+            mock_info.all_mids.return_value = {"ETH": "3000.0"}
+            mock_info_factory.return_value = mock_info
+
+            result = place_market_order(coin="ETH", is_buy=True, size=1.0, slippage=0.01)
+
+            # exchange.order must NOT have been called — the run is already BROADCAST.
+            mock_exchange.order.assert_not_called()
+
+        # next_action(BROADCAST) returns CONFIRMED, so the gate returns "already_broadcast"
+        # or "already_confirmed" depending on exact state. Either way, no order was placed.
+        self.assertIn(result["status"], ("already_broadcast", "already_confirmed"))
+
+
+class TestAntiReplayLimitOrder(unittest.TestCase):
+    """Anti-replay for ``place_limit_order``."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        os.environ["STAGEFORGE_STATE_DIR"] = self._tmpdir.name
+        self.run_id = "hl-replay-limit-001"
+
+        state_machine.transition(self.run_id, state_machine.STATE_PREFLIGHT,
+                                 payload={"coin": "BTC", "side": "sell"})
+        state_machine.transition(self.run_id, state_machine.STATE_SIGNED)
+        state_machine.transition(self.run_id, state_machine.STATE_BROADCAST)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+        os.environ.pop("STAGEFORGE_STATE_DIR", None)
+        os.environ.pop("AUDIT_RUN_ID", None)
+
+    def test_exchange_order_not_called_on_replay(self) -> None:
+        from unittest import mock
+
+        os.environ["AUDIT_RUN_ID"] = self.run_id
+
+        from hyperliquid_autopilot.order import place_limit_order
+
+        with (
+            mock.patch("hyperliquid_autopilot.order.make_exchange_client") as mock_exchange_factory,
+            mock.patch("hyperliquid_autopilot.order.log_event"),
+        ):
+            mock_exchange = mock.MagicMock()
+            mock_exchange_factory.return_value = mock_exchange
+
+            result = place_limit_order(coin="BTC", is_buy=False, size=0.5, price=70000)
+
+            mock_exchange.order.assert_not_called()
+
+        self.assertIn(result["status"], ("already_broadcast", "already_confirmed"))
+
+
 if __name__ == "__main__":
     unittest.main()
