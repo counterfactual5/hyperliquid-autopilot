@@ -10,6 +10,8 @@ from hyperliquid_autopilot.common import (
     decimal_to_text,
 )
 
+MAX_QUOTE_SLIPPAGE = Decimal("0.20")
+
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -52,11 +54,16 @@ def prepare_quote(
     coin: str = "ETH",
     is_buy: bool = True,
     size_usd: float | Decimal | str = 100,
-    slippage: float = 0.005,  # noqa: ARG001 — reserved for future slippage guard
+    slippage: float = 0.005,
     base_url: str | None = None,
 ) -> dict[str, Any]:
     """Estimate a trade quote based on current orderbook."""
     size = parse_decimal(str(size_usd), "size_usd")
+    slippage_limit = parse_decimal(str(slippage), "slippage")
+    if slippage_limit <= 0:
+        raise ValueError("slippage must be > 0")
+    if slippage_limit > MAX_QUOTE_SLIPPAGE:
+        raise ValueError(f"slippage must be <= {MAX_QUOTE_SLIPPAGE}")
     info = make_info_client(base_url=base_url)
 
     all_mids = info.all_mids()
@@ -108,6 +115,8 @@ def prepare_quote(
     avg_fill_price = (total_cost / filled) if filled > 0 else mid_price
     slippage_cost_usd = total_cost - (filled * mid_price) if is_buy else (filled * mid_price) - total_cost
 
+    exceeds_limit = impact_bps > (slippage_limit * Decimal("10000"))
+
     return {
         "coin": coin,
         "side": "buy" if is_buy else "sell",
@@ -116,6 +125,8 @@ def prepare_quote(
         "estimated_fill_price": decimal_to_text(avg_fill_price),
         "estimated_fill_size": decimal_to_text(filled),
         "slippage_bps": decimal_to_text(impact_bps),
+        "max_slippage_bps": decimal_to_text(slippage_limit * Decimal("10000")),
+        "slippage_exceeded": bool(exceeds_limit),
         "slippage_cost_usd": decimal_to_text(slippage_cost_usd),
         "book_depth_ask": sum(1 for _ in (levels[1] if len(levels) > 1 else [])),
         "book_depth_bid": sum(1 for _ in (levels[0] if len(levels) > 0 else [])),

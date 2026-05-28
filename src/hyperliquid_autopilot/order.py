@@ -1,6 +1,7 @@
 """Hyperliquid order execution — place, cancel, position management."""
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +13,40 @@ from hyperliquid_autopilot.common import (
     decimal_to_text,
     parse_decimal,
 )
+
+MAX_SLIPPAGE = Decimal("0.20")
+
+
+class OrderExecutionError(RuntimeError):
+    """Structured execution error with operation context."""
+
+    def __init__(self, operation: str, coin: str, details: str):
+        self.operation = operation
+        self.coin = coin
+        self.details = details
+        super().__init__(f"{operation}({coin}) failed: {details}")
+
+
+def _parse_slippage(slippage: float | Decimal | str) -> Decimal:
+    slippage_dec = parse_decimal(str(slippage), "slippage")
+    if slippage_dec <= 0:
+        raise ValueError("slippage must be > 0")
+    if slippage_dec > MAX_SLIPPAGE:
+        raise ValueError(f"slippage must be <= {MAX_SLIPPAGE}")
+    return slippage_dec
+
+
+def _retry_call(operation: str, coin: str, fn, *, retries: int = 3, backoff_seconds: float = 0.5):
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(backoff_seconds * attempt)
+    raise OrderExecutionError(operation, coin, str(last_error))
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +113,7 @@ def place_market_order(
 ) -> dict[str, Any]:
     """Place a market order (IOC at limit price with slippage buffer)."""
     size_dec = parse_decimal(str(size), "size")
+    slippage_dec = _parse_slippage(slippage)
     exchange = make_exchange_client(base_url)
 
     info = make_info_client(base_url or get_base_url())
@@ -85,17 +121,21 @@ def place_market_order(
     mid = parse_decimal(all_mids[coin], f"mid_{coin}")
 
     if is_buy:
-        limit_price = mid * (1 + parse_decimal(str(slippage), "slippage"))
+        limit_price = mid * (1 + slippage_dec)
     else:
-        limit_price = mid * (1 - parse_decimal(str(slippage), "slippage"))
+        limit_price = mid * (1 - slippage_dec)
 
-    result = exchange.order(
-        coin=coin,
-        is_buy=is_buy,
-        sz=float(size_dec),
-        limit_px=float(limit_price),
-        order_type={"limit": {"tif": "IOC"}},
-        cloid=cloid,
+    result = _retry_call(
+        "place_market_order",
+        coin,
+        lambda: exchange.order(
+            coin=coin,
+            is_buy=is_buy,
+            sz=float(size_dec),
+            limit_px=float(limit_price),
+            order_type={"limit": {"tif": "IOC"}},
+            cloid=cloid,
+        ),
     )
 
     return _normalize_order_result(result, coin, is_buy, size_dec, limit_price, "market_ioc")
@@ -116,13 +156,17 @@ def place_limit_order(
     price_dec = parse_decimal(str(price), "price")
     exchange = make_exchange_client(base_url)
 
-    result = exchange.order(
-        coin=coin,
-        is_buy=is_buy,
-        sz=float(size_dec),
-        limit_px=float(price_dec),
-        order_type={"limit": {"tif": time_in_force}},
-        cloid=cloid,
+    result = _retry_call(
+        "place_limit_order",
+        coin,
+        lambda: exchange.order(
+            coin=coin,
+            is_buy=is_buy,
+            sz=float(size_dec),
+            limit_px=float(price_dec),
+            order_type={"limit": {"tif": time_in_force}},
+            cloid=cloid,
+        ),
     )
 
     return _normalize_order_result(result, coin, is_buy, size_dec, price_dec, f"limit_{time_in_force}")
@@ -136,7 +180,7 @@ def cancel_order(
 ) -> dict[str, Any]:
     """Cancel a single order."""
     exchange = make_exchange_client(base_url)
-    result = exchange.cancel(coin=coin, oid=order_id)
+    result = _retry_call("cancel_order", coin, lambda: exchange.cancel(coin=coin, oid=order_id))
     return {
         "action": "cancel_order",
         "coin": coin,
