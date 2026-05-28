@@ -60,19 +60,14 @@ def _retry_call(
             if attempt >= retries:
                 break
             time.sleep(backoff_seconds * attempt)
-    # --- state machine: failed ---
-    try:
-        state_machine.transition(
-            _last_run_id,
-            state_machine.STATE_FAILED,
-            payload={
-                "error_code": type(last_error).__name__
-                if last_error
-                else "retry_exhausted"
-            },
-        )
-    except Exception:
-        pass
+    # --- state machine: failed (let errors surface) ---
+    state_machine.transition(
+        _last_run_id,
+        state_machine.STATE_FAILED,
+        payload={
+            "error_code": type(last_error).__name__ if last_error else "retry_exhausted"
+        },
+    )
     log_event(
         event=EVENT_ERROR,
         chain="hyperliquid",
@@ -172,21 +167,23 @@ def place_market_order(
     size_dec = parse_decimal(str(size), "size")
     slippage_dec = _parse_slippage(slippage)
 
-    # --- state machine ---
-    run_id = (
+    # --- state machine: preflight ---
+    global _last_run_id
+    _last_run_id = (
         os.environ.get("AUDIT_RUN_ID")
         or os.environ.get("STAGEFORGE_RUN_ID")
         or f"hl-{uuid.uuid4().hex[:12]}"
     )
-    _last_run_id = run_id
-    try:
+    run_id = _last_run_id
+    action = state_machine.next_action(run_id)
+    if action is None:
+        raise RuntimeError(f"run {run_id} is in terminal state — cannot proceed")
+    if action == state_machine.STATE_PREFLIGHT:
         state_machine.transition(
             run_id,
             state_machine.STATE_PREFLIGHT,
             payload={"coin": coin, "side": "buy" if is_buy else "sell"},
         )
-    except Exception:
-        pass
 
     exchange = make_exchange_client(base_url)
 
@@ -215,10 +212,9 @@ def place_market_order(
         },
     )
     # --- state machine: signed ---
-    try:
+    action = state_machine.next_action(run_id)
+    if action == state_machine.STATE_SIGNED:
         state_machine.transition(run_id, state_machine.STATE_SIGNED)
-    except Exception:
-        pass
     result = _retry_call(
         "place_market_order",
         coin,
@@ -242,10 +238,9 @@ def place_market_order(
         },
     )
     # --- state machine: broadcast ---
-    try:
+    action = state_machine.next_action(run_id)
+    if action == state_machine.STATE_BROADCAST:
         state_machine.transition(run_id, state_machine.STATE_BROADCAST)
-    except Exception:
-        pass
 
     return _normalize_order_result(
         result, coin, is_buy, size_dec, limit_price, "market_ioc"
