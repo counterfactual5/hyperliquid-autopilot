@@ -1,5 +1,5 @@
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
 dist/
 build/
@@ -8,3 +8,8 @@ build/
 *.egg
 .venv/
 venv/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+htmlcov/
+.coverage
