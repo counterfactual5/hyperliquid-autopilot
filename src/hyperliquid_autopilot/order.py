@@ -1,10 +1,14 @@
 """Hyperliquid order execution — place, cancel, position management."""
+
 from __future__ import annotations
 
+import os
 import time
+import uuid
 from decimal import Decimal
 from typing import Any
 
+from hyperliquid_autopilot import state_machine
 from hyperliquid_autopilot.audit import (
     EVENT_BROADCAST,
     EVENT_CANCEL,
@@ -13,15 +17,16 @@ from hyperliquid_autopilot.audit import (
     log_event,
 )
 from hyperliquid_autopilot.common import (
+    decimal_to_text,
+    get_base_url,
     make_exchange_client,
     make_info_client,
-    require_wallet_address,
-    get_base_url,
-    decimal_to_text,
     parse_decimal,
+    require_wallet_address,
 )
 
 MAX_SLIPPAGE = Decimal("0.20")
+_last_run_id: str = ""
 
 
 class OrderExecutionError(RuntimeError):
@@ -43,7 +48,9 @@ def _parse_slippage(slippage: float | Decimal | str) -> Decimal:
     return slippage_dec
 
 
-def _retry_call(operation: str, coin: str, fn, *, retries: int = 3, backoff_seconds: float = 0.5):
+def _retry_call(
+    operation: str, coin: str, fn, *, retries: int = 3, backoff_seconds: float = 0.5
+):
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
@@ -53,6 +60,19 @@ def _retry_call(operation: str, coin: str, fn, *, retries: int = 3, backoff_seco
             if attempt >= retries:
                 break
             time.sleep(backoff_seconds * attempt)
+    # --- state machine: failed ---
+    try:
+        state_machine.transition(
+            _last_run_id,
+            state_machine.STATE_FAILED,
+            payload={
+                "error_code": type(last_error).__name__
+                if last_error
+                else "retry_exhausted"
+            },
+        )
+    except Exception:
+        pass
     log_event(
         event=EVENT_ERROR,
         chain="hyperliquid",
@@ -84,6 +104,7 @@ def _try_wallet() -> str | None:
 # Query functions
 # ---------------------------------------------------------------------------
 
+
 def get_positions(base_url: str | None = None) -> list[dict[str, Any]]:
     """Return all open positions."""
     info = make_info_client(base_url)
@@ -93,19 +114,23 @@ def get_positions(base_url: str | None = None) -> list[dict[str, Any]]:
     for p in state.get("assetPositions", []):
         pos = p.get("position", {})
         if pos.get("szi") and parse_decimal(pos["szi"]) != 0:
-            positions.append({
-                "coin": pos.get("coin"),
-                "size": pos.get("szi"),
-                "entryPrice": pos.get("entryPx"),
-                "unrealizedPnl": pos.get("unrealizedPnl"),
-                "leverage": p.get("leverage", {}).get("value"),
-                "marginUsed": pos.get("marginUsed"),
-                "liquidationPrice": pos.get("liquidationPx"),
-            })
+            positions.append(
+                {
+                    "coin": pos.get("coin"),
+                    "size": pos.get("szi"),
+                    "entryPrice": pos.get("entryPx"),
+                    "unrealizedPnl": pos.get("unrealizedPnl"),
+                    "leverage": p.get("leverage", {}).get("value"),
+                    "marginUsed": pos.get("marginUsed"),
+                    "liquidationPrice": pos.get("liquidationPx"),
+                }
+            )
     return positions
 
 
-def get_open_orders(coin: str | None = None, base_url: str | None = None) -> list[dict[str, Any]]:
+def get_open_orders(
+    coin: str | None = None, base_url: str | None = None
+) -> list[dict[str, Any]]:
     """Return open orders, optionally filtered by coin."""
     info = make_info_client(base_url)
     wallet = require_wallet_address()
@@ -133,6 +158,7 @@ def get_account_value(base_url: str | None = None) -> dict[str, Any]:
 # Order execution
 # ---------------------------------------------------------------------------
 
+
 def place_market_order(
     *,
     coin: str,
@@ -145,6 +171,23 @@ def place_market_order(
     """Place a market order (IOC at limit price with slippage buffer)."""
     size_dec = parse_decimal(str(size), "size")
     slippage_dec = _parse_slippage(slippage)
+
+    # --- state machine ---
+    run_id = (
+        os.environ.get("AUDIT_RUN_ID")
+        or os.environ.get("STAGEFORGE_RUN_ID")
+        or f"hl-{uuid.uuid4().hex[:12]}"
+    )
+    _last_run_id = run_id
+    try:
+        state_machine.transition(
+            run_id,
+            state_machine.STATE_PREFLIGHT,
+            payload={"coin": coin, "side": "buy" if is_buy else "sell"},
+        )
+    except Exception:
+        pass
+
     exchange = make_exchange_client(base_url)
 
     info = make_info_client(base_url or get_base_url())
@@ -171,6 +214,11 @@ def place_market_order(
             "cloid": cloid,
         },
     )
+    # --- state machine: signed ---
+    try:
+        state_machine.transition(run_id, state_machine.STATE_SIGNED)
+    except Exception:
+        pass
     result = _retry_call(
         "place_market_order",
         coin,
@@ -193,8 +241,15 @@ def place_market_order(
             "status": _parse_status(result),
         },
     )
+    # --- state machine: broadcast ---
+    try:
+        state_machine.transition(run_id, state_machine.STATE_BROADCAST)
+    except Exception:
+        pass
 
-    return _normalize_order_result(result, coin, is_buy, size_dec, limit_price, "market_ioc")
+    return _normalize_order_result(
+        result, coin, is_buy, size_dec, limit_price, "market_ioc"
+    )
 
 
 def place_limit_order(
@@ -250,7 +305,9 @@ def place_limit_order(
         },
     )
 
-    return _normalize_order_result(result, coin, is_buy, size_dec, price_dec, f"limit_{time_in_force}")
+    return _normalize_order_result(
+        result, coin, is_buy, size_dec, price_dec, f"limit_{time_in_force}"
+    )
 
 
 def cancel_order(
@@ -261,7 +318,9 @@ def cancel_order(
 ) -> dict[str, Any]:
     """Cancel a single order."""
     exchange = make_exchange_client(base_url)
-    result = _retry_call("cancel_order", coin, lambda: exchange.cancel(coin=coin, oid=order_id))
+    result = _retry_call(
+        "cancel_order", coin, lambda: exchange.cancel(coin=coin, oid=order_id)
+    )
     log_event(
         event=EVENT_CANCEL,
         chain="hyperliquid",
@@ -300,7 +359,11 @@ def cancel_all_orders(
         wallet = require_wallet_address()
         info = make_info_client(base_url)
         open_orders = info.open_orders(wallet)
-        cancels = [{"coin": o.get("coin", ""), "oid": o.get("oid")} for o in open_orders if "oid" in o and "coin" in o]
+        cancels = [
+            {"coin": o.get("coin", ""), "oid": o.get("oid")}
+            for o in open_orders
+            if "oid" in o and "coin" in o
+        ]
         if not cancels:
             return {"action": "cancel_all", "cancelled": 0}
         result = exchange.bulk_cancel(cancels)
@@ -375,6 +438,7 @@ def close_position(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _normalize_order_result(
     result: Any,
