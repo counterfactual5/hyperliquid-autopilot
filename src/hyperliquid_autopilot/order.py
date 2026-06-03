@@ -198,8 +198,11 @@ def place_market_order(
     }
     policy_result = _policy.check_hyperliquid(pol, policy_ctx)
     if not policy_result.allowed:
-        state_machine.transition(run_id, state_machine.STATE_FAILED,
-                                 payload={"policy_violations": policy_result.to_dict()["violations"]})
+        state_machine.transition(
+            run_id,
+            state_machine.STATE_FAILED,
+            payload={"policy_violations": policy_result.to_dict()["violations"]},
+        )
         log_event(
             event=EVENT_ERROR,
             chain="hyperliquid",
@@ -215,7 +218,10 @@ def place_market_order(
             event=EVENT_PREFLIGHT,
             chain="hyperliquid",
             wallet=_try_wallet(),
-            details={"stage": "policy", "warnings": policy_result.to_dict()["warnings"]},
+            details={
+                "stage": "policy",
+                "warnings": policy_result.to_dict()["warnings"],
+            },
         )
 
     action = state_machine.next_action(run_id)
@@ -251,7 +257,40 @@ def place_market_order(
     else:
         limit_price = mid * (1 - slippage_dec)
 
+    # --- margin preflight ---
     wallet = _try_wallet()
+    acc = get_account_value(base_url)
+    account_value = Decimal(str(acc.get("totalAccountValue") or 0))
+    notional = size_dec * mid
+    if account_value <= 0:
+        log_event(
+            event=EVENT_ERROR,
+            chain="hyperliquid",
+            wallet=wallet,
+            run_id=run_id,
+            error_code="no_margin",
+            details={"account_value": str(account_value), "notional": str(notional)},
+        )
+        raise RuntimeError(
+            f"Account value is zero or negative ({account_value}) — cannot place order"
+        )
+    if notional > account_value * Decimal("2"):
+        log_event(
+            event=EVENT_ERROR,
+            chain="hyperliquid",
+            wallet=wallet,
+            run_id=run_id,
+            error_code="insufficient_margin",
+            details={
+                "account_value": str(account_value),
+                "notional": str(notional),
+                "leverage_estimate": str(notional / account_value),
+            },
+        )
+        raise RuntimeError(
+            f"Notional ({notional}) exceeds 2x account value ({account_value}) — would require >2x leverage"
+        )
+
     log_event(
         event=EVENT_SIGN,
         chain="hyperliquid",
@@ -326,7 +365,11 @@ def place_limit_order(
         state_machine.transition(
             run_id,
             state_machine.STATE_PREFLIGHT,
-            payload={"coin": coin, "side": "buy" if is_buy else "sell", "tif": time_in_force},
+            payload={
+                "coin": coin,
+                "side": "buy" if is_buy else "sell",
+                "tif": time_in_force,
+            },
         )
 
     # --- policy gate (PREFLIGHT → SIGNED) ---
@@ -339,8 +382,11 @@ def place_limit_order(
     }
     policy_result = _policy.check_hyperliquid(pol, policy_ctx)
     if not policy_result.allowed:
-        state_machine.transition(run_id, state_machine.STATE_FAILED,
-                                 payload={"policy_violations": policy_result.to_dict()["violations"]})
+        state_machine.transition(
+            run_id,
+            state_machine.STATE_FAILED,
+            payload={"policy_violations": policy_result.to_dict()["violations"]},
+        )
         log_event(
             event=EVENT_ERROR,
             chain="hyperliquid",
@@ -356,7 +402,10 @@ def place_limit_order(
             event=EVENT_PREFLIGHT,
             chain="hyperliquid",
             wallet=_try_wallet(),
-            details={"stage": "policy", "warnings": policy_result.to_dict()["warnings"]},
+            details={
+                "stage": "policy",
+                "warnings": policy_result.to_dict()["warnings"],
+            },
         )
 
     action = state_machine.next_action(run_id)
