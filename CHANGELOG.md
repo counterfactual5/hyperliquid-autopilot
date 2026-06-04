@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.6] — 2026-06-05
+## [0.7.0] — 2026-06-05
 
 ### Added
 - **Market snapshot validation**: `validate_market_snapshot` / `assert_tradeable_snapshot`
