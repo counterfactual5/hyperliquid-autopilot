@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.6] — 2026-06-05
+
+### Added
+- **Market snapshot validation**: `validate_market_snapshot` / `assert_tradeable_snapshot`
+  before quoting (crossed book, wide spread, mid divergence).
+- **Drawdown metrics**: `drawdown_series`, `max_drawdown`, `rank_drawdown_leaderboard`
+  for equity-curve analysis.
+
 ## [0.1.0] — 2026-05-23
 
 ### Added
