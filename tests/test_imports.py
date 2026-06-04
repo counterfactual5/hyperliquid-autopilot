@@ -1,8 +1,6 @@
 """Basic import checks for hyperliquid_autopilot."""
 import importlib
-import sys
 
-import pytest
 
 
 def test_import_common():

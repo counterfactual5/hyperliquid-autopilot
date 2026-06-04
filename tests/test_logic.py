@@ -4,7 +4,6 @@ import unittest
 from decimal import Decimal
 from unittest import mock
 
-import pytest
 
 from hyperliquid_autopilot.common import parse_decimal
 from hyperliquid_autopilot.quote import prepare_quote
@@ -86,10 +85,12 @@ class TestOrder(unittest.TestCase):
         """Market buy at mid × (1+slippage)."""
         info = _mock_info_client()
         exchange = _mock_exchange_client()
+        account_value = {"totalAccountValue": "100000", "totalMarginUsed": "0", "totalNtlPos": "0"}
 
         with mock.patch("hyperliquid_autopilot.order.make_info_client", return_value=info):
             with mock.patch("hyperliquid_autopilot.order.make_exchange_client", return_value=exchange):
-                result = place_market_order(coin="ETH", is_buy=True, size=1.0, slippage=0.01)
+                with mock.patch("hyperliquid_autopilot.order.get_account_value", return_value=account_value):
+                    result = place_market_order(coin="ETH", is_buy=True, size=1.0, slippage=0.01)
 
         self.assertEqual(result["status"], "ok")
         exchange.order.assert_called_once()
@@ -108,9 +109,12 @@ class TestOrder(unittest.TestCase):
         info = _mock_info_client(user_state=pos_data)
         exchange = _mock_exchange_client()
 
+        account_value = {"totalAccountValue": "100000", "totalMarginUsed": "0", "totalNtlPos": "0"}
+
         with mock.patch("hyperliquid_autopilot.order.make_info_client", return_value=info):
             with mock.patch("hyperliquid_autopilot.order.make_exchange_client", return_value=exchange):
-                result = close_position(coin="ETH")
+                with mock.patch("hyperliquid_autopilot.order.get_account_value", return_value=account_value):
+                    result = close_position(coin="ETH")
 
         self.assertEqual(result["status"], "ok")
         # Short of -1.5 → close = buy (is_buy=True), size = 1.5
@@ -127,7 +131,7 @@ class TestFlow(unittest.TestCase):
 
     def setUp(self):
         # Set environment for wallet resolution
-        os.environ["HYPERLIQUID_WALLET_ADDRESS"] = "0x1234567890abcdef1234567890abcdef12345678"
+        os.environ["HYPERLIQUID_WALLET_ADDRESS"] ="0x1234567890abcdef1234567890abcdef12345678"
         os.environ["HYPERLIQUID_PRIVATE_KEY"] = "0xabc123"
 
     def tearDown(self):
@@ -136,7 +140,6 @@ class TestFlow(unittest.TestCase):
 
     def test_dry_run_no_order(self):
         """Dry-run returns quote without placing order."""
-        info = _mock_info_client()
         exchange = _mock_exchange_client()
 
         with mock.patch("hyperliquid_autopilot.quote.get_mid_price", return_value=Decimal("2500")):
