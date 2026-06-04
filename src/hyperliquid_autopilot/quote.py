@@ -9,6 +9,7 @@ from hyperliquid_autopilot.common import (
     parse_decimal,
     decimal_to_text,
 )
+from hyperliquid_autopilot.market_snapshot import assert_tradeable_snapshot
 
 MAX_QUOTE_SLIPPAGE = Decimal("0.20")
 
@@ -56,8 +57,14 @@ def prepare_quote(
     size_usd: float | Decimal | str = 100,
     slippage: float = 0.005,
     base_url: str | None = None,
+    validate_snapshot: bool = True,
 ) -> dict[str, Any]:
-    """Estimate a trade quote based on current orderbook."""
+    """Estimate a trade quote based on current orderbook.
+
+    When ``validate_snapshot`` is True (default) the live mid price and order
+    book are sanity-checked before any pricing math, so a degenerate or stale
+    snapshot raises ``MarketDataError`` instead of producing a bogus quote.
+    """
     size = parse_decimal(str(size_usd), "size_usd")
     slippage_limit = parse_decimal(str(slippage), "slippage")
     if slippage_limit <= 0:
@@ -73,6 +80,8 @@ def prepare_quote(
     mid_price = parse_decimal(mid_str, f"mid_{coin}")
 
     book = info.l2_snapshot(name=coin)
+    if validate_snapshot:
+        assert_tradeable_snapshot(coin, mid_price, book)
     levels = book.get("levels", [[]])
     if is_buy:
         levels_to_walk = levels[1] if len(levels) > 1 else []

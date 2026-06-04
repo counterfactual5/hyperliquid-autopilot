@@ -142,8 +142,10 @@ class TestFlow(unittest.TestCase):
         """Dry-run returns quote without placing order."""
         exchange = _mock_exchange_client()
 
-        with mock.patch("hyperliquid_autopilot.quote.get_mid_price", return_value=Decimal("2500")):
-            with mock.patch("hyperliquid_autopilot.quote.prepare_quote", return_value={"coin": "ETH", "mid": Decimal("2500"), "bid": Decimal("2499"), "ask": Decimal("2501")}):
+        # run_trade_flow imports these names into the flow module namespace,
+        # so patch them there (not in quote) for the mocks to take effect.
+        with mock.patch("hyperliquid_autopilot.flow.get_mid_price", return_value=Decimal("2500")):
+            with mock.patch("hyperliquid_autopilot.flow.prepare_quote", return_value={"coin": "ETH", "mid": Decimal("2500"), "bid": Decimal("2499"), "ask": Decimal("2501")}):
                 result = run_trade_flow(coin="ETH", side="buy", size_usd=100, dry_run=True)
 
         self.assertEqual(result["status"], "dry_run")
