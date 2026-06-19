@@ -3,8 +3,6 @@ import unittest
 from decimal import Decimal
 
 from hyperliquid_autopilot.metrics import (
-    DrawdownStats,
-    LeaderboardEntry,
     drawdown_series,
     max_drawdown,
     rank_drawdown_leaderboard,
